@@ -1,0 +1,54 @@
+#include <WiFi.h>
+#include <esp_now.h>
+
+// Defina o pino do LED onboard manualmente se LED_BUILTIN não estiver definido
+#ifndef LED_BUILTIN
+  #define LED_BUILTIN 2  // GPIO2 é comum em muitas placas ESP32
+#endif
+
+// Endereço MAC do mestre (deve corresponder ao endereço real do seu mestre)
+uint8_t broadcastAddress[] = {0xD8, 0xBC, 0x38, 0xE5, 0xAB, 0x08};
+
+// Função de callback modificada para a nova assinatura do ESP-NOW
+void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+  char message[20];
+  strncpy(message, (char *)incomingData, len);
+  message[len] = '\0';
+  
+  Serial.print("Mensagem recebida: ");
+  Serial.println(message);
+  
+  if (strcmp(message, "LED_ON") == 0) {
+    digitalWrite(LED_BUILTIN, LOW);  // Liga o LED (LOW porque muitos ESPs têm LED com lógica invertida)
+    Serial.println("LED ligado");
+  } else if (strcmp(message, "LED_OFF") == 0) {
+    digitalWrite(LED_BUILTIN, HIGH); // Desliga o LED
+    Serial.println("LED desligado");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Configura o pino do LED
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH);  // Inicia com LED desligado
+  
+  // Configura o WiFi
+  WiFi.mode(WIFI_STA);
+  
+  // Inicializa o ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro ao inicializar ESP-NOW");
+    return;
+  }
+  
+  // Registra a função de callback
+  esp_now_register_recv_cb((esp_now_recv_cb_t)OnDataRecv);
+  
+  Serial.println("ESP32 Escravo pronto para receber dados");
+}
+
+void loop() {
+  // Nada necessário aqui - tudo é tratado no callback
+}
