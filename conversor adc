@@ -1,0 +1,80 @@
+#include <Arduino.h>
+
+// Configurações do Hardware
+#define SENSOR_PIN 36      // Pino analógico do sensor (GPIO36 = ADC1_CH0)
+#define LED_PIN 2           // Pino do LED (GPIO2)
+#define NUM_AMOSTRAS 6      // Número de amostras para média móvel
+
+// Variáveis globais
+float buffer[NUM_AMOSTRAS]; // Buffer para armazenar amostras
+int indice = 0;             // Índice atual do buffer
+bool solo_seco = false;     // Estado do solo (seco/úmido)
+unsigned long ultimaLeitura = 0;
+unsigned long intervaloLeitura = 600000; // 10 minutos em ms (inicial)
+
+// Função para ler o sensor (0-4095, pois o ESP32 tem ADC de 12 bits)
+int lerSensor() {
+  return analogRead(SENSOR_PIN); // Lê o valor bruto (0-4095)
+}
+
+// Função para calcular a média móvel
+float calcularMediaMovel() {
+  float soma = 0;
+  for (int i = 0; i < NUM_AMOSTRAS; i++) {
+    soma += buffer[i];
+  }
+  return soma / NUM_AMOSTRAS;
+}
+
+// Função para verificar se o solo está seco (ajuste o limiar conforme necessário)
+bool verificarSoloSeco(float media) {
+  const int LIMIAR_SECO = 2500; // Ajuste conforme calibração (valor alto = solo seco)
+  return (media > LIMIAR_SECO); // Se maior que o limiar, solo está seco
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  // Inicializa o buffer com zeros
+  for (int i = 0; i < NUM_AMOSTRAS; i++) {
+    buffer[i] = 0;
+  }
+
+  Serial.println("Sistema de Monitoramento de Umidade do Solo Iniciado");
+}
+
+void loop() {
+  unsigned long agora = millis();
+
+  // Verifica se é hora de fazer uma nova leitura
+  if (agora - ultimaLeitura >= intervaloLeitura) {
+    ultimaLeitura = agora;
+
+    // Lê o sensor e armazena no buffer
+    int leitura = lerSensor();
+    buffer[indice] = leitura;
+    indice = (indice + 1) % NUM_AMOSTRAS; // Atualiza o índice circularmente
+
+    // Calcula a média móvel
+    float media = calcularMediaMovel();
+
+    // Verifica se o solo está seco
+    solo_seco = verificarSoloSeco(media);
+
+    // Atualiza o LED e o intervalo de leitura
+    digitalWrite(LED_PIN, solo_seco ? HIGH : LOW);
+    intervaloLeitura = solo_seco ? 60000 : 600000; // 1 min (seco) ou 10 min (úmido)
+
+    // Exibe os dados no Serial Monitor
+    Serial.print("Leitura: ");
+    Serial.print(leitura);
+    Serial.print(" | Média: ");
+    Serial.print(media);
+    Serial.print(" | Solo: ");
+    Serial.println(solo_seco ? "SECO (LED LIGADO)" : "ÚMIDO (LED DESLIGADO)");
+  }
+
+  delay(100); // Pequeno delay para evitar sobrecarga
+}
