@@ -1,0 +1,36 @@
+#include <WiFi.h>
+#include <esp_now.h>
+
+#define POT_PIN 34 // Pino do potenciômetro
+
+// MAC do escravo - substitua pelo real
+uint8_t slaveMac[] = {0xD8, 0xBC, 0x38, 0xE5, 0xAB, 0x08};
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+  
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro ESP-NOW");
+    return;
+  }
+
+  esp_now_peer_info_t peerInfo;
+  memset(&peerInfo, 0, sizeof(peerInfo));
+  memcpy(peerInfo.peer_addr, slaveMac, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+  
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Erro ao adicionar peer");
+    return;
+  }
+}
+
+void loop() {
+  int val = analogRead(POT_PIN);
+  String cmd = (val > 2048) ? "LED_ON" : "LED_OFF";
+  
+  esp_now_send(slaveMac, (uint8_t *)cmd.c_str(), cmd.length());
+  delay(100);
+}
