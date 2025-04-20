@@ -1,0 +1,37 @@
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+
+RF24 radio(4, 5); // CE=4, CSN=5
+const uint64_t address = 0xF0F0F0F0E1LL;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(2, OUTPUT);
+  
+  // Inicialização segura
+  if (!radio.begin()) {
+    Serial.println("NRF24L01 não iniciado!");
+    while(1); // Trava se falhar
+  }
+  
+  radio.setPALevel(RF24_PA_LOW);
+  radio.openReadingPipe(1, address);
+  radio.startListening();
+  
+  Serial.println("Receptor pronto");
+}
+
+void loop() {
+  if (radio.available()) {
+    char msg[32] = "";
+    radio.read(&msg, sizeof(msg));
+    
+    if (strcmp(msg, "ON") == 0) {
+      digitalWrite(2, HIGH);
+      delay(200);
+      digitalWrite(2, LOW);
+      Serial.println("Comando recebido!");
+    }
+  }
+}
