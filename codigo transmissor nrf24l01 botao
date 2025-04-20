@@ -1,0 +1,24 @@
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+
+#define BUTTON_PIN 15  // Botão no GPIO15 (conectado ao GND)
+
+RF24 radio(4, 5); // CE=4, CSN=5
+const uint64_t address = 0xF0F0F0F0E1LL; // Endereço único
+
+void setup() {
+  pinMode(BUTTON_PIN, INPUT_PULLUP); // Botão com pull-up
+  radio.begin();
+  radio.openWritingPipe(address);
+  radio.setPALevel(RF24_PA_LOW); // Usar PA_MIN em ambientes próximos
+  radio.stopListening();
+}
+
+void loop() {
+  if (digitalRead(BUTTON_PIN) == LOW) { // Botão pressionado
+    const char msg[] = "ON";
+    radio.write(&msg, sizeof(msg));
+    delay(200); // Debounce
+  }
+}
