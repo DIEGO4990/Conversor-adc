@@ -1,0 +1,31 @@
+#include <WiFi.h>
+
+void setup() {
+  Serial.begin(115200);
+  delay(3000); // Espera inicialização
+  
+  // Método garantido para sua versão
+  Serial.println("Iniciando leitura MAC...");
+  
+  // 1. Inicializa o WiFi
+  WiFi.mode(WIFI_STA);
+  delay(500);
+  
+  // 2. Obtém o MAC usando o método padrão
+  String mac = WiFi.macAddress();
+  Serial.print("Endereço MAC: ");
+  Serial.println(mac);
+  
+  // 3. Formato alternativo (bytes individuais)
+  Serial.println("Bytes individuais:");
+  mac.replace(":", "");
+  for(int i=0; i<6; i++) {
+    String byteStr = mac.substring(i*2, i*2+2);
+    Serial.print("Byte ");
+    Serial.print(i);
+    Serial.print(": 0x");
+    Serial.println(byteStr);
+  }
+}
+
+void loop() {}
