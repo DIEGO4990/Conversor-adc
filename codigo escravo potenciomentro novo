@@ -1,0 +1,50 @@
+#include <WiFi.h>
+#include <esp_now.h>
+
+#ifndef LED_BUILTIN
+  #define LED_BUILTIN 2
+#endif
+
+void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
+  char msg[10];
+  size_t copyLen = (len < sizeof(msg) - 1) ? len : sizeof(msg) - 1;
+  strncpy(msg, (const char *)data, copyLen);
+  msg[copyLen] = '\0';
+
+  Serial.print("Recebido de: ");
+  for (int i = 0; i < 6; i++) {
+    Serial.printf("%02X", info->src_addr[i]);
+    if (i < 5) Serial.print(":");
+  }
+  Serial.print(" -> ");
+  Serial.println(msg);
+
+  if (strcmp(msg, "ON") == 0) {
+    digitalWrite(LED_BUILTIN, LOW);
+    Serial.println("LED ligado");
+  } else if (strcmp(msg, "OFF") == 0) {
+    digitalWrite(LED_BUILTIN, HIGH);
+    Serial.println("LED desligado");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH); // LED começa desligado
+
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro ao iniciar ESP-NOW");
+    return;
+  }
+
+  esp_now_register_recv_cb(OnDataRecv);
+
+  Serial.println("Escravo pronto para receber comandos.");
+}
+
+void loop() {
+  delay(100);
+}
