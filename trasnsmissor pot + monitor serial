@@ -1,0 +1,96 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <Preferences.h>
+
+#define POT_PIN 34
+#define RESET_BTN_PIN 33  // Botão de reset agora no pino GPIO 33
+
+Preferences prefs;
+uint8_t slaveMac[6];
+bool hasValidMac = false;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(RESET_BTN_PIN, INPUT_PULLUP);
+
+  WiFi.mode(WIFI_STA);
+
+  // Verifica se o botão de reset está pressionado no boot
+  if (digitalRead(RESET_BTN_PIN) == LOW) {
+    prefs.begin("espnow", false);
+    prefs.clear();
+    prefs.end();
+    Serial.println("MAC apagado da memória. Reinicie para configurar um novo.");
+    while (true); // Aguarda reinicialização manual
+  }
+
+  // Tenta carregar o MAC salvo
+  prefs.begin("espnow", false);
+  if (prefs.isKey("mac0")) {
+    for (int i = 0; i < 6; i++) {
+      slaveMac[i] = prefs.getUChar(("mac" + String(i)).c_str(), 0);
+    }
+    hasValidMac = true;
+  } else {
+    Serial.println("Digite o endereço MAC do receptor (formato: AA:BB:CC:DD:EE:FF):");
+    while (Serial.available() == 0);
+    String macInput = Serial.readStringUntil('\n');
+    macInput.trim();
+    if (macInput.length() == 17) {
+      int values[6];
+      if (sscanf(macInput.c_str(), "%x:%x:%x:%x:%x:%x", 
+                 &values[0], &values[1], &values[2],
+                 &values[3], &values[4], &values[5]) == 6) {
+        for (int i = 0; i < 6; i++) {
+          slaveMac[i] = (uint8_t)values[i];
+          prefs.putUChar(("mac" + String(i)).c_str(), slaveMac[i]);
+        }
+        hasValidMac = true;
+        Serial.println("MAC salvo com sucesso!");
+      }
+    }
+  }
+  prefs.end();
+
+  if (!hasValidMac) {
+    Serial.println("MAC inválido. Reinicie e tente novamente.");
+    while (true);
+  }
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro ao iniciar ESP-NOW");
+    return;
+  }
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, slaveMac, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Erro ao adicionar peer");
+    return;
+  }
+
+  Serial.print("Mestre pronto. Comunicando com: ");
+  for (int i = 0; i < 6; i++) {
+    Serial.printf("%02X", slaveMac[i]);
+    if (i < 5) Serial.print(":");
+  }
+  Serial.println();
+}
+
+void loop() {
+  int val = analogRead(POT_PIN);
+  const char* cmd = (val > 2048) ? "ON" : "OFF";
+
+  esp_err_t result = esp_now_send(slaveMac, (uint8_t *)cmd, strlen(cmd));
+  if (result == ESP_OK) {
+    Serial.print("Enviado: ");
+    Serial.println(cmd);
+  } else {
+    Serial.println("Erro ao enviar dados");
+  }
+
+  delay(200);
+}
