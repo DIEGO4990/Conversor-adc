@@ -1,0 +1,52 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <SPI.h>
+#include <RF24.h>
+
+#define LED_LOCAL 2         // LED que acende com o potenciômetro
+#define BUTTON_NRF 13       // Botão que aciona envio via NRF
+#define CE_PIN 4
+#define CSN_PIN 5
+
+RF24 radio(CE_PIN, CSN_PIN);
+const byte nrfAddress[6] = "00001";
+
+void receberESPNow(const esp_now_recv_info *info, const uint8_t *data, int len) {
+  String comando = "";
+  for (int i = 0; i < len; i++) comando += (char)data[i];
+
+  if (comando.indexOf("LED_ON") != -1) digitalWrite(LED_LOCAL, HIGH);
+  else if (comando.indexOf("LED_OFF") != -1) digitalWrite(LED_LOCAL, LOW);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_LOCAL, OUTPUT);
+  pinMode(BUTTON_NRF, INPUT_PULLUP);
+
+  WiFi.mode(WIFI_STA);
+  
+  // Inicializa NRF
+  radio.begin();
+  radio.openWritingPipe(nrfAddress);
+  radio.setPALevel(RF24_PA_LOW);
+  radio.stopListening();
+
+  // Inicializa ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro ao iniciar ESP-NOW");
+    while (true);
+  }
+
+  esp_now_register_recv_cb(receberESPNow);
+  Serial.println("🧠 Pronto: recebe do pot, envia por botão via NRF.");
+}
+
+void loop() {
+  if (digitalRead(BUTTON_NRF) == LOW) {
+    const char* comando = "LED_ON";
+    radio.stopListening();
+    radio.write((const uint8_t*)comando, strlen(comando));
+    delay(300);  // Debounce
+  }
+}
