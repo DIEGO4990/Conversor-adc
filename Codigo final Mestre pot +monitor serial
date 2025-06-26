@@ -1,0 +1,105 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <Preferences.h>
+
+
+#define POT_PIN 34
+#define RESET_BTN 0  // Botão BOOT do ESP32
+
+
+Preferences prefs;
+uint8_t peerMac[6];
+bool macValido = false;
+
+
+void solicitarMac() {
+  Serial.println("Digite o MAC destino (formato: AA:BB:CC:DD:EE:FF):");
+  while (!Serial.available());
+  String input = Serial.readStringUntil('\n');
+  input.trim();
+
+
+  int valores[6];
+  if (sscanf(input.c_str(), "%x:%x:%x:%x:%x:%x",
+             &valores[0], &valores[1], &valores[2],
+             &valores[3], &valores[4], &valores[5]) == 6) {
+    for (int i = 0; i < 6; i++) {
+      peerMac[i] = (uint8_t)valores[i];
+      prefs.putUChar(("mac" + String(i)).c_str(), peerMac[i]);
+    }
+    macValido = true;
+    Serial.println("✅ MAC salvo com sucesso!");
+  } else {
+    Serial.println("❌ MAC inválido. Reinicie e tente novamente.");
+  }
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(POT_PIN, INPUT);
+  pinMode(RESET_BTN, INPUT_PULLUP);
+  WiFi.mode(WIFI_STA);
+
+
+  prefs.begin("macprefs", false);
+
+
+  // Apaga o MAC ao segurar o botão BOOT
+  if (digitalRead(RESET_BTN) == LOW) {
+    prefs.clear();
+    prefs.end();
+    Serial.println("🧹 MAC apagado. Reinicie para cadastrar novamente.");
+    while (true);
+  }
+
+
+  if (prefs.isKey("mac0")) {
+    for (int i = 0; i < 6; i++) {
+      peerMac[i] = prefs.getUChar(("mac" + String(i)).c_str(), 0);
+    }
+    macValido = true;
+  } else {
+    solicitarMac();
+  }
+
+
+  prefs.end();
+
+
+  if (!macValido) return;
+
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro ao iniciar ESP-NOW");
+    return;
+  }
+
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, peerMac, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Erro ao adicionar peer");
+    return;
+  }
+
+
+  Serial.println("🚀 Pronto para enviar comandos via ESP-NOW");
+}
+
+
+void loop() {
+  if (!macValido) return;
+
+
+  int leitura = analogRead(POT_PIN);
+  const char* comando = (leitura > 2000) ? "LED_ON" : "LED_OFF";
+
+
+  esp_now_send(peerMac, (const uint8_t*)comando, strlen(comando));
+  delay(250);
+}
