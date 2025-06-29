@@ -1,0 +1,146 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <Preferences.h>
+
+#define SENSOR_PIN 34       // Pino do potenciômetro ou sensor
+#define LED_PIN 2           // LED para indicar solo seco/úmido
+#define RESET_BTN 27        // Botão externo para reset
+#define NUM_AMOSTRAS 6      // Tamanho da média móvel
+#define TEMPO_RESET 2000    // Tempo de botão pressionado para reset (ms)
+#define INTERVALO_TESTE 1000 // Intervalo de leitura para testes (1 segundo)
+
+Preferences prefs;
+uint8_t peerMac[6];
+bool macValido = false;
+float buffer[NUM_AMOSTRAS];
+int indice = 0;
+bool solo_seco = false;
+unsigned long ultimaLeitura = 0;
+unsigned long tempoPressionado = 0;
+
+// ⬇️ Solicita MAC manualmente via serial
+void solicitarMac() {
+  Serial.println("Digite o MAC destino (formato: AA:BB:CC:DD:EE:FF):");
+  while (!Serial.available());
+  String input = Serial.readStringUntil('\n');
+  input.trim();
+
+  int valores[6];
+  if (sscanf(input.c_str(), "%x:%x:%x:%x:%x:%x",
+             &valores[0], &valores[1], &valores[2],
+             &valores[3], &valores[4], &valores[5]) == 6) {
+    for (int i = 0; i < 6; i++) {
+      peerMac[i] = (uint8_t)valores[i];
+      prefs.putUChar(("mac" + String(i)).c_str(), peerMac[i]);
+    }
+    macValido = true;
+    Serial.println("✅ MAC salvo com sucesso!");
+  } else {
+    Serial.println("❌ MAC inválido. Reinicie e tente novamente.");
+  }
+}
+
+// ⬇️ Verifica se botão foi pressionado por 2 segundos para reset
+void verificarReset() {
+  if (digitalRead(RESET_BTN) == LOW) {
+    if (tempoPressionado == 0) {
+      tempoPressionado = millis();
+    } else if (millis() - tempoPressionado >= TEMPO_RESET) {
+      prefs.begin("macprefs", false);
+      prefs.clear();
+      prefs.end();
+      Serial.println("🧹 MAC apagado via botão! Reiniciando...");
+      delay(500);
+      ESP.restart();
+    }
+  } else {
+    tempoPressionado = 0;
+  }
+}
+
+float calcularMediaMovel() {
+  float soma = 0;
+  for (int i = 0; i < NUM_AMOSTRAS; i++) {
+    soma += buffer[i];
+  }
+  return soma / NUM_AMOSTRAS;
+}
+
+bool verificarSoloSeco(float media) {
+  const int LIMIAR_SECO = 2000; // ajustável para testes com potenciômetro
+  return (media > LIMIAR_SECO);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(SENSOR_PIN, INPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(RESET_BTN, INPUT_PULLUP);
+  digitalWrite(LED_PIN, LOW);
+  WiFi.mode(WIFI_STA);
+
+  // Inicializa buffer da média móvel
+  for (int i = 0; i < NUM_AMOSTRAS; i++) buffer[i] = 0;
+
+  prefs.begin("macprefs", false);
+  bool macCompleto = true;
+  for (int i = 0; i < 6; i++) {
+    peerMac[i] = prefs.getUChar(("mac" + String(i)).c_str(), 0xFF);
+    if (peerMac[i] == 0xFF || peerMac[i] == 0x00) macCompleto = false;
+  }
+  macValido = macCompleto;
+
+  if (!macValido) solicitarMac();
+  prefs.end();
+
+  if (!macValido) {
+    Serial.println("⚠️ MAC inválido. Comunicação ESP-NOW desabilitada.");
+    while (true);
+  }
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("❌ Erro ao iniciar ESP-NOW");
+    return;
+  }
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, peerMac, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("❌ Erro ao adicionar peer");
+    return;
+  }
+
+  Serial.println("🚀 Pronto para enviar comandos via ESP-NOW (modo teste)");
+}
+
+void loop() {
+  verificarReset();
+
+  unsigned long agora = millis();
+  if (agora - ultimaLeitura >= INTERVALO_TESTE) {
+    ultimaLeitura = agora;
+
+    int leitura = analogRead(SENSOR_PIN);
+    buffer[indice] = leitura;
+    indice = (indice + 1) % NUM_AMOSTRAS;
+    float media = calcularMediaMovel();
+
+    solo_seco = verificarSoloSeco(media);
+    digitalWrite(LED_PIN, solo_seco ? HIGH : LOW);
+
+    const char* comando = solo_seco ? "LED_ON" : "LED_OFF";
+    esp_now_send(peerMac, (const uint8_t*)comando, strlen(comando));
+
+    Serial.print("ADC: ");
+    Serial.print(leitura);
+    Serial.print(" | Média: ");
+    Serial.print(media);
+    Serial.print(" | Solo: ");
+    Serial.println(solo_seco ? "SECO (LED LIGADO)" : "ÚMIDO (LED DESLIGADO)");
+  }
+
+  delay(50);  // Leve atraso pra evitar sobrecarga
+}
