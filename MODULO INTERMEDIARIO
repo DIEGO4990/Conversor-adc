@@ -1,0 +1,70 @@
+#include <WiFi.h>
+#include <esp_now.h>
+#include <SPI.h>
+#include <RF24.h>
+
+#define LED_PIN 2
+
+RF24 radio(5, 17);  // CE = GPIO5, CSN = GPIO17 (ajuste conforme necessário)
+const byte endereco[6] = "NODE1";
+
+void enviarNRF(String comando) {
+  radio.stopListening();
+  const char* msg = comando.c_str();
+  bool sucesso = radio.write(&msg[0], comando.length() + 1);
+  if (sucesso) {
+    Serial.print("📡 Enviado via NRF24: ");
+    Serial.println(comando);
+  } else {
+    Serial.println("❌ Falha ao enviar via NRF24");
+  }
+  radio.startListening(); // Pronto pra ouvir de novo se precisar
+}
+
+void ligarLed(const esp_now_recv_info *info, const uint8_t *dados, int tamanho) {
+  String comando = String((const char*)dados).substring(0, tamanho);
+
+  if (comando == "LED_ON") {
+    digitalWrite(LED_PIN, HIGH);
+    Serial.println("💡 LED ligado");
+    enviarNRF("LED_ON");
+  } else if (comando == "LED_OFF") {
+    digitalWrite(LED_PIN, LOW);
+    Serial.println("🌑 LED desligado");
+    enviarNRF("LED_OFF");
+  } else {
+    Serial.print("🤔 Comando desconhecido: ");
+    Serial.println(comando);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+  WiFi.mode(WIFI_STA);
+
+  // Inicializa ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("❌ Erro ao iniciar ESP-NOW");
+    return;
+  }
+  esp_now_register_recv_cb(ligarLed);
+  Serial.println("📥 Aguardando comandos via ESP-NOW...");
+
+  // Inicializa NRF24L01
+  if (!radio.begin()) {
+    Serial.println("❌ Falha ao iniciar NRF24");
+  }
+  radio.setPALevel(RF24_PA_LOW);
+  radio.setChannel(108); // Canal RF
+  radio.setDataRate(RF24_1MBPS);
+  radio.openWritingPipe(endereco);
+  radio.stopListening();
+
+  Serial.println("📤 Pronto para retransmitir via NRF24");
+}
+
+void loop() {
+  // tudo tratado por callbacks
+}
