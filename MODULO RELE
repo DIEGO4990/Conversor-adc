@@ -1,0 +1,56 @@
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+
+#define LED_PIN 2        // LED para feedback visual
+#define RELE_PIN 15      // GPIO para acionar o módulo relé (ajuste conforme sua placa)
+
+RF24 radio(5, 17);       // CE = GPIO5, CSN = GPIO17 (ajuste se necessário)
+const byte endereco[6] = "NODE1"; // mesmo endereço usado no transmissor
+
+void setup() {
+  Serial.begin(115200);
+  
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(RELE_PIN, OUTPUT);
+
+  digitalWrite(LED_PIN, LOW);
+  digitalWrite(RELE_PIN, LOW); // Relé desligado inicialmente
+
+  if (!radio.begin()) {
+    Serial.println("❌ Erro ao iniciar módulo nRF24L01");
+    while (true); // trava o código
+  }
+
+  radio.setPALevel(RF24_PA_LOW);
+  radio.setChannel(108);         // Mesmo canal que o emissor
+  radio.setDataRate(RF24_1MBPS); // Taxa compatível com o transmissor
+  radio.openReadingPipe(1, endereco);
+  radio.startListening();
+
+  Serial.println("🟢 Receptor NRF24 pronto para receber comandos");
+}
+
+void loop() {
+  if (radio.available()) {
+    char comando[32] = "";
+    radio.read(&comando, sizeof(comando));
+
+    Serial.print("📩 Comando recebido: ");
+    Serial.println(comando);
+
+    if (strcmp(comando, "LED_ON") == 0) {
+      digitalWrite(LED_PIN, HIGH);
+      digitalWrite(RELE_PIN, HIGH);  // Liga o relé
+      Serial.println("💡 LED ligado | 🔌 RELÉ acionado");
+    } 
+    else if (strcmp(comando, "LED_OFF") == 0) {
+      digitalWrite(LED_PIN, LOW);
+      digitalWrite(RELE_PIN, LOW);   // Desliga o relé
+      Serial.println("🌑 LED desligado | 🔌 RELÉ desligado");
+    } 
+    else {
+      Serial.println("⚠️ Comando desconhecido!");
+    }
+  }
+}
